@@ -1,27 +1,37 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
-	"strconv"
-	"strings"
 	"time"
+
+	"github.com/therecipe/qt/core"
+	"github.com/therecipe/qt/widgets"
 )
 
-// StartMenuInfo содержит всю информацию о пользователе
+type GameWindow struct {
+	window      *widgets.QMainWindow
+	mainStack   *widgets.QStackedWidget
+	info        *StartMenuInfo
+	nameInput   *widgets.QLineEdit
+	ageInput    *widgets.QSpinBox
+	moneyLabel  *widgets.QLabel
+	jobLabel    *widgets.QLabel
+	statusLabel *widgets.QLabel
+	jobList     *widgets.QListWidget
+}
+
 type StartMenuInfo struct {
 	Name     string    `json:"name"`
 	Age      int       `json:"age"`
 	Money    float64   `json:"money"`
 	Job      string    `json:"job"`
-	HaveAJob bool      `json:"haveajob"`
+	HaveAJob bool      `json:"haveAJob"`
 	LastPaid time.Time `json:"lastPaid"`
 }
 
-// Job определяет структуру работы
 type Job struct {
 	Name   string
 	Salary float64
@@ -32,280 +42,247 @@ const (
 	salaryPeriod = 5 * time.Minute
 )
 
-// Список всех доступных работ
 var jobs = []Job{
 	{"Lawyer", 4500},
 	{"Pilot", 6000},
 	{"Entrepreneur", 7000},
 	{"Programmer", 3000},
-	{"Writer", 2000},
-	{"Scientist", 4800},
-	{"Mechanic", 2600},
-	{"Nurse", 3000},
-	{"Driver", 2500},
-	{"Musician", 1800},
-	{"Chef", 2300},
-	{"Engineer", 4000},
-	{"Doctor", 5000},
-	{"Artist", 2200},
-	{"Police Officer", 3500},
-	{"Firefighter", 3400},
-	{"Farmer", 2000},
-	{"Designer", 2500},
-	{"Teacher", 1500},
-	{"Salesperson", 2700},
+	{"Doctor", 5500},
+	{"Teacher", 2500},
+	{"Engineer", 3500},
+	{"Chef", 2000},
 }
 
-// generateStartingMoney генерирует случайную стартовую сумму денег
-func generateStartingMoney() float64 {
+func createNewGame() *GameWindow {
 	rand.Seed(time.Now().UnixNano())
-	money := float64(rand.Intn(50001)) // Случайная сумма от 0 до 50000
-	fmt.Printf("The game randomly generated $%.2f as your starting money!\n", money)
 
-	if money < 1000 {
-		money += 1000
-		fmt.Println("Since it's less than $1000, here's a $1000 bonus! Have a good game!")
+	game := &GameWindow{
+		window:    widgets.NewQMainWindow(nil, 0),
+		mainStack: widgets.NewQStackedWidget(nil),
+		info:      &StartMenuInfo{LastPaid: time.Now()},
 	}
 
-	return money
+	game.window.SetWindowTitle("Career Game")
+	game.window.SetMinimumSize2(800, 600)
+	game.setupUI()
+
+	if err := game.loadData(); err != nil {
+		game.mainStack.SetCurrentIndex(0)
+	} else {
+		game.updateDisplay()
+		game.mainStack.SetCurrentIndex(1)
+	}
+
+	return game
 }
 
-// readInput читает строку ввода от пользователя
-func readInput(prompt string) string {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print(prompt)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Printf("Error reading input: %v\n", err)
-		return ""
+func (g *GameWindow) setupUI() {
+	newGameWidget := widgets.NewQWidget(nil, 0)
+	newGameLayout := widgets.NewQVBoxLayout()
+
+	nameLayout := widgets.NewQHBoxLayout()
+	nameLabel := widgets.NewQLabel2("Name:", nil, 0)
+	g.nameInput = widgets.NewQLineEdit(nil)
+	nameLayout.AddWidget(nameLabel, 0, core.Qt__AlignLeft)
+	nameLayout.AddWidget(g.nameInput, 1, 0)
+
+	ageLayout := widgets.NewQHBoxLayout()
+	ageLabel := widgets.NewQLabel2("Age:", nil, 0)
+	g.ageInput = widgets.NewQSpinBox(nil)
+	g.ageInput.SetRange(18, 100)
+	ageLayout.AddWidget(ageLabel, 0, core.Qt__AlignLeft)
+	ageLayout.AddWidget(g.ageInput, 1, 0)
+
+	startButton := widgets.NewQPushButton2("Start Game", nil)
+	startButton.ConnectClicked(func(bool) { g.startNewGame() })
+
+	newGameLayout.AddLayout(nameLayout, 0)
+	newGameLayout.AddLayout(ageLayout, 0)
+	newGameLayout.AddStretch(1)
+	newGameLayout.AddWidget(startButton, 0, core.Qt__AlignCenter)
+	newGameWidget.SetLayout(newGameLayout)
+
+	mainGameWidget := widgets.NewQWidget(nil, 0)
+	mainGameLayout := widgets.NewQVBoxLayout()
+
+	g.statusLabel = widgets.NewQLabel(nil, 0)
+	g.moneyLabel = widgets.NewQLabel(nil, 0)
+	g.jobLabel = widgets.NewQLabel(nil, 0)
+
+	g.jobList = widgets.NewQListWidget(nil)
+	g.jobList.ConnectItemDoubleClicked(func(item *widgets.QListWidgetItem) {
+		g.applyForJob(item.Text())
+	})
+
+	for _, job := range jobs {
+		jobText := fmt.Sprintf("%s - $%.2f per %d minutes", job.Name, job.Salary, int(salaryPeriod.Minutes()))
+		item := widgets.NewQListWidgetItem(nil, 0)
+		item.SetText(jobText)
+		g.jobList.AddItem2(item)
 	}
-	return strings.TrimSpace(input)
+	g.jobList.Hide()
+
+	buttonLayout := widgets.NewQHBoxLayout()
+	findJobButton := widgets.NewQPushButton2("Find Job", nil)
+	quitJobButton := widgets.NewQPushButton2("Quit Job", nil)
+	saveButton := widgets.NewQPushButton2("Save & Quit", nil)
+
+	findJobButton.ConnectClicked(func(bool) { g.toggleJobList() })
+	quitJobButton.ConnectClicked(func(bool) { g.quitJob() })
+	saveButton.ConnectClicked(func(bool) { g.saveAndQuit() })
+
+	buttonLayout.AddWidget(findJobButton, 0, 0)
+	buttonLayout.AddWidget(quitJobButton, 0, 0)
+	buttonLayout.AddStretch(1)
+	buttonLayout.AddWidget(saveButton, 0, 0)
+
+	mainGameLayout.AddWidget(g.statusLabel, 0, core.Qt__AlignTop)
+	mainGameLayout.AddWidget(g.moneyLabel, 0, core.Qt__AlignTop)
+	mainGameLayout.AddWidget(g.jobLabel, 0, core.Qt__AlignTop)
+	mainGameLayout.AddWidget(g.jobList, 1, 0)
+	mainGameLayout.AddLayout(buttonLayout, 0)
+	mainGameWidget.SetLayout(mainGameLayout)
+
+	g.mainStack.AddWidget(newGameWidget)
+	g.mainStack.AddWidget(mainGameWidget)
+	g.window.SetCentralWidget(g.mainStack)
+
+	timer := core.NewQTimer(nil)
+	timer.ConnectTimeout(func() { g.updateSalary() })
+	timer.Start(30000)
 }
 
-// readNumber читает и проверяет числовой ввод
-func readNumber(prompt string, min, max float64) (float64, error) {
-	input := readInput(prompt)
-	num, err := strconv.ParseFloat(input, 64)
-	if err != nil || num < min || num > max {
-		return 0, fmt.Errorf("please enter a number between %.2f and %.2f", min, max)
-	}
-	return num, nil
-}
-
-// startMenu инициализирует нового игрока
-func startMenu() (StartMenuInfo, error) {
-	info := StartMenuInfo{
-		LastPaid: time.Now(),
+func (g *GameWindow) applyForJob(jobText string) {
+	if g.info.HaveAJob {
+		widgets.QMessageBox_Warning(nil, "Error", "You already have a job! Quit your current job first.", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
 	}
 
-	info.Name = readInput("Enter your name: ")
-	if info.Name == "" {
-		return info, fmt.Errorf("name cannot be empty")
-	}
-
-	age, err := readNumber("\nEnter your age: ", 18, 100)
-	if err != nil {
-		return info, err
-	}
-	info.Age = int(age)
-
-	// Генерируем случайную стартовую сумму денег
-	info.Money = generateStartingMoney()
-
-	return info, nil
-}
-
-// saveData сохраняет данные игрока
-func saveData(info *StartMenuInfo) error {
-	file, err := os.Create(dataFile)
-	if err != nil {
-		return fmt.Errorf("error creating file: %w", err)
-	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			fmt.Printf("Error closing file: %v\n", err)
+	for _, job := range jobs {
+		if jobText == fmt.Sprintf("%s - $%.2f per %d minutes", job.Name, job.Salary, int(salaryPeriod.Minutes())) {
+			g.info.Job = job.Name
+			g.info.HaveAJob = true
+			g.info.LastPaid = time.Now()
+			g.saveData()
+			g.updateDisplay()
+			g.jobList.Hide()
+			widgets.QMessageBox_Information(nil, "Congratulations", fmt.Sprintf("You got the job as a %s!", job.Name), widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+			return
 		}
-	}()
-
-	encoder := json.NewEncoder(file)
-	if err := encoder.Encode(info); err != nil {
-		return fmt.Errorf("error encoding JSON: %w", err)
 	}
-	return nil
 }
 
-// loadData загружает сохраненные данные игрока
-func loadData() (StartMenuInfo, error) {
-	file, err := os.Open(dataFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return StartMenuInfo{}, fmt.Errorf("no saved game found")
-		}
-		return StartMenuInfo{}, fmt.Errorf("error opening file: %w", err)
+func (g *GameWindow) startNewGame() {
+	if g.nameInput.Text() == "" {
+		widgets.QMessageBox_Warning(nil, "Error", "Please enter your name", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
 	}
-	defer file.Close()
 
-	var info StartMenuInfo
-	if err := json.NewDecoder(file).Decode(&info); err != nil {
-		return StartMenuInfo{}, fmt.Errorf("error decoding JSON: %w", err)
+	g.info.Name = g.nameInput.Text()
+	g.info.Age = g.ageInput.Value()
+	g.info.Money = float64(rand.Intn(49001) + 1000)
+	g.info.LastPaid = time.Now()
+	g.info.HaveAJob = false
+	g.info.Job = ""
+
+	if err := g.saveData(); err != nil {
+		widgets.QMessageBox_Warning(nil, "Error", "Failed to save game data", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
 	}
-	return info, nil
+
+	g.updateDisplay()
+	g.mainStack.SetCurrentIndex(1)
 }
 
-// updateSalary обновляет зарплату игрока
-func updateSalary(info *StartMenuInfo) {
-	if !info.HaveAJob {
+func (g *GameWindow) updateDisplay() {
+	g.statusLabel.SetText(fmt.Sprintf("Welcome, %s! (Age: %d)", g.info.Name, g.info.Age))
+	g.moneyLabel.SetText(fmt.Sprintf("Current Balance: $%.2f", g.info.Money))
+
+	if g.info.HaveAJob {
+		g.jobLabel.SetText(fmt.Sprintf("Current Job: %s", g.info.Job))
+	} else {
+		g.jobLabel.SetText("Currently Unemployed")
+	}
+}
+
+func (g *GameWindow) toggleJobList() {
+	if g.jobList.IsVisible() {
+		g.jobList.Hide()
+	} else {
+		g.jobList.Show()
+	}
+}
+
+func (g *GameWindow) quitJob() {
+	if !g.info.HaveAJob {
+		widgets.QMessageBox_Information(nil, "Info", "You don't have a job to quit!", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
+	}
+
+	g.info.Job = ""
+	g.info.HaveAJob = false
+	g.saveData()
+	g.updateDisplay()
+	widgets.QMessageBox_Information(nil, "Job Status", "You have quit your job.", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+}
+
+func (g *GameWindow) updateSalary() {
+	if !g.info.HaveAJob {
 		return
 	}
 
 	now := time.Now()
-	elapsed := now.Sub(info.LastPaid)
+	elapsed := now.Sub(g.info.LastPaid)
 	periods := int(elapsed / salaryPeriod)
 
 	if periods > 0 {
-		job := jobs[getJobID(info.Job)]
-		salary := float64(periods) * job.Salary
-		info.Money += salary
-		info.LastPaid = info.LastPaid.Add(time.Duration(periods) * salaryPeriod)
-		fmt.Printf("You earned $%.2f from your job!\n", salary)
+		for _, job := range jobs {
+			if job.Name == g.info.Job {
+				salary := float64(periods) * job.Salary
+				g.info.Money += salary
+				g.info.LastPaid = g.info.LastPaid.Add(time.Duration(periods) * salaryPeriod)
+				g.saveData()
+				g.updateDisplay()
+				widgets.QMessageBox_Information(nil, "Salary Received",
+					fmt.Sprintf("You earned $%.2f from your job!", salary),
+					widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+				break
+			}
+		}
 	}
 }
 
-// displayJobs показывает список доступных работ
-func displayJobs() {
-	fmt.Println("\nAvailable jobs:")
-	for i, job := range jobs {
-		fmt.Printf("%d. %s - $%.2f per %d minutes\n", i+1, job.Name, job.Salary, int(salaryPeriod.Minutes()))
-	}
-	fmt.Println("0. Back to menu")
-}
-
-// findJob позволяет игроку найти работу
-func findJob(info *StartMenuInfo) error {
-	displayJobs()
-	choice, err := readNumber("Choose a job by typing a number: ", 0, float64(len(jobs)))
+func (g *GameWindow) saveData() error {
+	file, err := os.Create(dataFile)
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	if choice == 0 {
-		return nil
-	}
-
-	selectedJob := jobs[int(choice)-1]
-	info.Job = selectedJob.Name
-	info.HaveAJob = true
-	info.LastPaid = time.Now()
-
-	if err := saveData(info); err != nil {
-		return fmt.Errorf("error saving job selection: %w", err)
-	}
-
-	fmt.Printf("Congratulations! You're now a %s earning $%.2f every %d minutes!\n",
-		selectedJob.Name, selectedJob.Salary, int(salaryPeriod.Minutes()))
-	return nil
+	return json.NewEncoder(file).Encode(g.info)
 }
 
-// displayMenu показывает главное меню игры
-func displayMenu(info *StartMenuInfo) {
-	fmt.Println("\n=== Career Game Menu ===")
-	if info.HaveAJob {
-		fmt.Println("1. View current job")
-		fmt.Println("2. Leave job")
-	} else {
-		fmt.Println("1. Find a job")
+func (g *GameWindow) loadData() error {
+	file, err := os.Open(dataFile)
+	if err != nil {
+		return err
 	}
-	fmt.Println("3. View account balance")
-	fmt.Println("4. Save and quit")
+	defer file.Close()
+
+	return json.NewDecoder(file).Decode(g.info)
 }
 
-// getJobID получает ID работы по её названию
-func getJobID(jobName string) int {
-	for id, job := range jobs {
-		if job.Name == jobName {
-			return id
-		}
+func (g *GameWindow) saveAndQuit() {
+	if err := g.saveData(); err != nil {
+		widgets.QMessageBox_Warning(nil, "Error", "Failed to save game data", widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+		return
 	}
-	return -1
-}
-
-// displayWelcomeBack показывает приветственное сообщение для вернувшегося игрока
-func displayWelcomeBack(info *StartMenuInfo) {
-	fmt.Printf("\nWelcome back, %s!\n", info.Name)
-
-	if info.HaveAJob {
-		job := jobs[getJobID(info.Job)]
-		fmt.Printf("You are currently working as a %s with a salary of $%.2f per %d minutes.\n",
-			info.Job, job.Salary, int(salaryPeriod.Minutes()))
-		fmt.Printf("Your current balance is: $%.2f\n", info.Money)
-	} else {
-		fmt.Printf("You currently don't have a job. Your balance is: $%.2f\n", info.Money)
-		fmt.Println("Don't forget to check the job market!")
-	}
+	g.window.Close()
 }
 
 func main() {
-	var info StartMenuInfo
-	var err error
-
-	// Пытаемся загрузить сохраненную игру
-	info, err = loadData()
-	if err != nil {
-		// Если сохранение не найдено - создаем нового игрока
-		fmt.Println("Welcome new player! Let's set up your character.")
-		info, err = startMenu()
-		if err != nil {
-			fmt.Printf("Error starting game: %v\n", err)
-			return
-		}
-		if err := saveData(&info); err != nil {
-			fmt.Printf("Error saving initial data: %v\n", err)
-			return
-		}
-	} else {
-		// Приветствуем вернувшегося игрока с подробной информацией
-		displayWelcomeBack(&info)
-	}
-
-	// Основной игровой цикл
-	for {
-		updateSalary(&info)
-		displayMenu(&info)
-
-		choice, err := readNumber("Enter your choice: ", 1, 4)
-		if err != nil {
-			fmt.Println("Invalid input, please try again")
-			continue
-		}
-
-		switch int(choice) {
-		case 1:
-			if info.HaveAJob {
-				job := jobs[getJobID(info.Job)]
-				fmt.Printf("\nCurrent job: %s\nSalary: $%.2f per %d minutes\n",
-					info.Job, job.Salary, int(salaryPeriod.Minutes()))
-			} else {
-				if err := findJob(&info); err != nil {
-					fmt.Printf("Error finding job: %v\n", err)
-				}
-			}
-		case 2:
-			if info.HaveAJob {
-				fmt.Printf("You left your job as %s\n", info.Job)
-				info.Job = ""
-				info.HaveAJob = false
-				if err := saveData(&info); err != nil {
-					fmt.Printf("Error saving after leaving job: %v\n", err)
-				}
-			}
-		case 3:
-			fmt.Printf("\nCurrent balance: $%.2f\n", info.Money)
-		case 4:
-			if err := saveData(&info); err != nil {
-				fmt.Printf("Error saving game: %v\n", err)
-			}
-			fmt.Println("Thanks for playing! Goodbye!")
-			return
-		}
-	}
+	app := widgets.NewQApplication(len(os.Args), os.Args)
+	game := createNewGame()
+	game.window.Show()
+	app.Exec()
 }
