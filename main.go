@@ -12,15 +12,16 @@ import (
 )
 
 type GameWindow struct {
-	window      *widgets.QMainWindow
-	mainStack   *widgets.QStackedWidget
-	info        *StartMenuInfo
-	nameInput   *widgets.QLineEdit
-	ageInput    *widgets.QSpinBox
-	moneyLabel  *widgets.QLabel
-	jobLabel    *widgets.QLabel
-	statusLabel *widgets.QLabel
-	jobList     *widgets.QListWidget
+	window            *widgets.QMainWindow
+	mainStack         *widgets.QStackedWidget
+	info              *StartMenuInfo
+	nameInput         *widgets.QLineEdit
+	ageInput          *widgets.QSpinBox
+	moneyLabel        *widgets.QLabel
+	jobLabel          *widgets.QLabel
+	statusLabel       *widgets.QLabel
+	jobList           *widgets.QListWidget
+	notificationLabel *widgets.QLabel
 }
 
 type StartMenuInfo struct {
@@ -91,18 +92,36 @@ func createNewGame() *GameWindow {
 	rand.Seed(time.Now().UnixNano())
 
 	game := &GameWindow{
-		window:    widgets.NewQMainWindow(nil, 0),
-		mainStack: widgets.NewQStackedWidget(nil),
-		info:      &StartMenuInfo{LastPaid: time.Now()},
+		window:            widgets.NewQMainWindow(nil, 0),
+		mainStack:         widgets.NewQStackedWidget(nil),
+		info:              &StartMenuInfo{LastPaid: time.Now()},
+		notificationLabel: widgets.NewQLabel(nil, 0),
 	}
+
+	game.window.SetStyleSheet(`
+		QWidget {
+			background-color: rgb(66, 66, 66);
+			color: white;
+		}
+		QLabel {
+			color: white;
+		}
+		QSpinBox, QLineEdit {
+			background-color: rgb(100, 100, 100);
+			color: white;
+			border: 1px solid rgb(85, 85, 85);
+			padding: 5px;
+			border-radius: 5px;
+		}
+		QListWidget {
+			background-color: rgb(100, 100, 100);
+			color: white;
+			border: 1px solid rgb(85, 85, 85);
+		}
+	`)
 
 	game.window.SetWindowTitle("Dream Career Game")
 	game.window.SetMinimumSize2(800, 600)
-	game.window.SetStyleSheet(`
-		QPushButton {
-			background-color: rgb(35, 35, 35);
-		}
-	`)
 	game.setupUI()
 
 	if err := game.loadData(); err != nil {
@@ -133,6 +152,23 @@ func (g *GameWindow) setupUI() {
 	ageLayout.AddWidget(g.ageInput, 1, 0)
 
 	startButton := widgets.NewQPushButton2("Start Game", nil)
+	startButton.SetMinimumSize2(200, 50)
+	startButton.SetStyleSheet(`
+		QPushButton {
+			background-color: rgb(85, 85, 85);
+			color: white;
+			font-size: 18px;
+			font-weight: bold;
+			border-radius: 10px;
+			padding: 10px;
+		}
+		QPushButton:hover {
+			background-color: rgb(123, 123, 123);
+		}
+		QPushButton:pressed {
+			background-color: rgb(150, 150, 150);
+		}
+	`)
 	startButton.ConnectClicked(func(bool) { g.startNewGame() })
 
 	newGameLayout.AddLayout(nameLayout, 0)
@@ -163,8 +199,56 @@ func (g *GameWindow) setupUI() {
 
 	buttonLayout := widgets.NewQHBoxLayout()
 	findJobButton := widgets.NewQPushButton2("Find Job", nil)
+	findJobButton.SetStyleSheet(`
+		QPushButton {
+			background-color: rgb(85, 85, 85);
+			color: white;
+			font-size: 15px;
+			font-weight: bold;
+			border-radius: 10px;
+			padding: 10px;
+		}
+		QPushButton:hover {
+			background-color: rgb(123, 123, 123);
+		}
+		QPushButton:pressed {
+			background-color: rgb(150, 150, 150);
+		}
+	`)
 	quitJobButton := widgets.NewQPushButton2("Quit Job", nil)
+	quitJobButton.SetStyleSheet(`
+		QPushButton {
+			background-color: rgb(85, 85, 85);
+			color: white;
+			font-size: 15px;
+			font-weight: bold;
+			border-radius: 10px;
+			padding: 10px;
+		}
+		QPushButton:hover {
+			background-color: rgb(123, 123, 123)
+		}
+		QPushButton:pressed {
+			background-color: rgb(150, 150, 150);
+		}
+	`)
 	saveButton := widgets.NewQPushButton2("Save & Quit", nil)
+	saveButton.SetStyleSheet(`
+		QPushButton {
+			background-color: rgb(85, 85, 85);
+			color: white;
+			font-size: 15px;
+			font-weight: bold;
+			border-radius: 10px;
+			padding: 10px;
+		}
+		QPushButton:hover {
+			background-color: rgb(123, 123, 123);
+		}
+		QPushButton:pressed {
+			background-color: rgb(150, 150, 150);
+		}
+	`)
 
 	findJobButton.ConnectClicked(func(bool) { g.toggleJobList() })
 	quitJobButton.ConnectClicked(func(bool) { g.quitJob() })
@@ -175,9 +259,22 @@ func (g *GameWindow) setupUI() {
 	buttonLayout.AddStretch(1)
 	buttonLayout.AddWidget(saveButton, 0, 0)
 
+	g.notificationLabel = widgets.NewQLabel(nil, 0)
+	g.notificationLabel.SetStyleSheet(`
+		QLabel {
+			color: white;
+			background-color: rgba(0, 0, 0, 0.7);
+			padding: 10px;
+			border-radius: 5px;
+			font-size: 14px;
+		}
+	`)
+	g.notificationLabel.Hide()
+
 	mainGameLayout.AddWidget(g.statusLabel, 0, core.Qt__AlignTop)
 	mainGameLayout.AddWidget(g.moneyLabel, 0, core.Qt__AlignTop)
 	mainGameLayout.AddWidget(g.jobLabel, 0, core.Qt__AlignTop)
+	mainGameLayout.AddWidget(g.notificationLabel, 0, core.Qt__AlignTop)
 	mainGameLayout.AddWidget(g.jobList, 1, 0)
 	mainGameLayout.AddLayout(buttonLayout, 0)
 	mainGameWidget.SetLayout(mainGameLayout)
@@ -205,7 +302,7 @@ func (g *GameWindow) applyForJob(jobText string) {
 			g.saveData()
 			g.updateDisplay()
 			g.jobList.Hide()
-			widgets.QMessageBox_Information(nil, "Congratulations", fmt.Sprintf("You got the job as a %s!", job.Name), widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+			g.showNotification(fmt.Sprintf("You got the job as a %s!", job.Name))
 			return
 		}
 	}
@@ -282,9 +379,7 @@ func (g *GameWindow) updateSalary() {
 				g.info.LastPaid = g.info.LastPaid.Add(time.Duration(periods) * salaryPeriod)
 				g.saveData()
 				g.updateDisplay()
-				widgets.QMessageBox_Information(nil, "Salary Received",
-					fmt.Sprintf("You earned $%.2f from your job!", salary),
-					widgets.QMessageBox__Ok, widgets.QMessageBox__Ok)
+				g.showNotification(fmt.Sprintf("You earned $%.2f from your job!", salary))
 				break
 			}
 		}
@@ -317,6 +412,18 @@ func (g *GameWindow) saveAndQuit() {
 		return
 	}
 	g.window.Close()
+}
+
+func (g *GameWindow) showNotification(message string) {
+	g.notificationLabel.SetText(message)
+	g.notificationLabel.Show()
+
+	timer := core.NewQTimer(nil)
+	timer.ConnectTimeout(func() {
+		g.notificationLabel.Hide()
+		timer.DeleteLater()
+	})
+	timer.Start(3000)
 }
 
 func main() {
