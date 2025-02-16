@@ -5,4 +5,4 @@ I'm making "Dream career game" for fun and I think that noboby cares about it, b
 Thanks for reading this and I I will be grateful if you can help me with updates or continue it yourself!
 Bye!
 
-MADE WITH HELP OF Chatgpt.com AND Claude.ai
+MADE WITH HELP OF chatgpt.com AND claude.ai
